@@ -1,5 +1,9 @@
 # AI劳动法律师软件依赖包
 
+# Web框架
+Flask>=2.0.0
+Flask-CORS>=4.0.0
+
 # 核心AI模型调用
 dashscope>=1.14.0
 openai>=1.0.0

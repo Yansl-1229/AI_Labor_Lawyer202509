@@ -52,17 +52,38 @@ def chat_with_lawyer(message, conversation_history=None):
     
     if response.status_code == 200:
         lawyer_response = response.output.choices[0].message.content
-        conversation_history.append({'role': Role.ASSISTANT, 'content': lawyer_response})
+        
+        # 文本完整性检查和调试日志
+        if not lawyer_response or not lawyer_response.strip():
+            print(f"警告: API返回空响应")
+            return "抱歉，系统暂时无法回复，请稍后重试。", conversation_history, False
+        
+        # 检查文本长度变化（调试用）
+        original_length = len(lawyer_response)
+        cleaned_response = lawyer_response.strip()
+        if len(cleaned_response) != original_length:
+            print(f"调试: 文本长度从 {original_length} 变为 {len(cleaned_response)}")
+        
+        # 确保文本编码正确
+        try:
+            # 验证文本可以正确编码和解码
+            test_encode = cleaned_response.encode('utf-8').decode('utf-8')
+            if test_encode != cleaned_response:
+                print(f"警告: 文本编码可能有问题")
+        except UnicodeError as e:
+            print(f"警告: 文本编码错误: {e}")
+        
+        conversation_history.append({'role': Role.ASSISTANT, 'content': cleaned_response})
         
         # 检查是否结束对话
-        conversation_ended = "？" not in lawyer_response and "?" not in lawyer_response
+        conversation_ended = "？" not in cleaned_response and "?" not in cleaned_response
         
         if conversation_ended:
             # 保存对话为ShareGPT格式
             save_conversation_to_json(conversation_history)
-            return lawyer_response + "\n\n对话已结束，并保存为JSON文件。", conversation_history, True
+            return cleaned_response + "\n\n对话已结束，并保存为JSON文件。", conversation_history, True
         
-        return lawyer_response, conversation_history, False
+        return cleaned_response, conversation_history, False
     else:
         return f"API错误: {response.code} - {response.message}", conversation_history, False
 

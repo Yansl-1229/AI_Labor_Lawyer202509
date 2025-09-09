@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from openai import OpenAI
 from typing import Dict
 
@@ -74,6 +75,7 @@ class CaseAnalysisGenerator:
             生成的案例分析
         """
         prompt = f"""
+当前时间为{datetime.now().strftime('%Y年%m月%d日 %H:%M:%S')}
 你是一位资深的劳动法律师。你的任务是根据下方提供的"对话内容"，直接为你的当事人撰写一份专业的法律分析与后续行动建议。
 
 **核心要求 - 语气与称谓（请务必遵守）：**

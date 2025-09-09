@@ -102,12 +102,13 @@ class EvidenceAnalyzer:
             }
         }
     
-    def analyze_case_evidence(self, conversation_file_path: str) -> Dict[str, Any]:
+    def analyze_case_evidence(self, conversation_file_path: str, uploaded_files_info: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
         分析案件证据的主函数
         
         Args:
             conversation_file_path: 对话历史文件路径
+            uploaded_files_info: 前端上传的文件信息列表，格式为 [{'filename': str, 'filepath': str, 'evidence_type': str}]
             
         Returns:
             包含所有证据分析结果的综合报告
@@ -124,8 +125,13 @@ class EvidenceAnalyzer:
         print(f"📋 识别到 {len(evidence_items)} 类证据需求")
         print(evidence_items)
         
-        # 3. 引导用户上传证据
-        uploaded_evidence = self._guide_evidence_upload(evidence_items)
+        # 3. 处理证据上传（Web版本或命令行版本）
+        if uploaded_files_info:
+            # Web版本：使用前端上传的文件信息
+            uploaded_evidence = self._process_uploaded_files(evidence_items, uploaded_files_info)
+        else:
+            # 命令行版本：引导用户上传证据
+            uploaded_evidence = self._guide_evidence_upload(evidence_items)
         
         # 4. 分析每个证据
         analysis_results = {}
@@ -195,6 +201,85 @@ class EvidenceAnalyzer:
         
         return evidence_items
     
+    def _process_uploaded_files(self, evidence_items: Dict[EvidenceType, List[EvidenceItem]], uploaded_files_info: List[Dict]) -> Dict[EvidenceType, List[EvidenceItem]]:
+        """
+        处理前端上传的文件信息
+        
+        Args:
+            evidence_items: 识别到的证据需求
+            uploaded_files_info: 前端上传的文件信息列表
+            
+        Returns:
+            包含文件路径的证据项字典
+        """
+        print("\n📤 处理前端上传的证据文件...")
+        uploaded_evidence = {}
+        
+        # 创建文件名到证据类型的映射
+        evidence_type_mapping = {
+            '合同': EvidenceType.CONTRACT,
+            '劳动合同': EvidenceType.CONTRACT,
+            '工资': EvidenceType.PAYMENT,
+            '银行流水': EvidenceType.PAYMENT,
+            '工资单': EvidenceType.PAYMENT,
+            '考勤': EvidenceType.ATTENDANCE,
+            '打卡记录': EvidenceType.ATTENDANCE,
+            '录音': EvidenceType.MEDIA,
+            '视频': EvidenceType.MEDIA,
+            '聊天记录': EvidenceType.CHAT,
+            '微信': EvidenceType.CHAT
+        }
+        
+        for file_info in uploaded_files_info:
+            filename = file_info.get('filename', '')
+            filepath = file_info.get('filepath', '')
+            
+            if not filepath or not os.path.exists(filepath):
+                print(f"❌ 文件不存在或路径无效: {filepath}")
+                continue
+                
+            # 根据文件名推断证据类型
+            detected_type = None
+            for keyword, evidence_type in evidence_type_mapping.items():
+                if keyword in filename:
+                    detected_type = evidence_type
+                    break
+            
+            if not detected_type:
+                # 默认为合同类型
+                detected_type = EvidenceType.CONTRACT
+                print(f"⚠️ 无法识别文件类型，默认为合同类: {filename}")
+            
+            # 查找匹配的证据项
+            if detected_type in evidence_items and evidence_items[detected_type]:
+                # 使用第一个匹配的证据项
+                evidence_item = evidence_items[detected_type][0]
+                evidence_item.file_path = filepath
+                
+                if detected_type not in uploaded_evidence:
+                    uploaded_evidence[detected_type] = []
+                uploaded_evidence[detected_type].append(evidence_item)
+                
+                print(f"✅ 文件已关联: {filename} -> {self._get_evidence_type_name(detected_type)}")
+            else:
+                # 创建新的证据项
+                evidence_item = EvidenceItem(
+                    evidence_type=detected_type,
+                    description=filename,
+                    keywords=[filename],
+                    required=True,
+                    file_path=filepath
+                )
+                
+                if detected_type not in uploaded_evidence:
+                    uploaded_evidence[detected_type] = []
+                uploaded_evidence[detected_type].append(evidence_item)
+                
+                print(f"✅ 新建证据项: {filename} -> {self._get_evidence_type_name(detected_type)}")
+        
+        print(f"📋 共处理 {len(uploaded_files_info)} 个上传文件")
+        return uploaded_evidence
+    
     def _guide_evidence_upload(self, evidence_items: Dict[EvidenceType, List[EvidenceItem]]) -> Dict[EvidenceType, List[EvidenceItem]]:
         """引导用户上传证据文件"""
         print("\n📤 请按照提示上传相关证据文件：")
@@ -243,16 +328,20 @@ class EvidenceAnalyzer:
         
         # 尝试调用对应的API
         if self.api_configs and evidence.evidence_type in self.api_configs:
-            api_result = self._call_evidence_api(evidence)
-            
-            if api_result:
-                self.logger.info(f"使用API分析结果: {evidence.evidence_type.value}")
-                return api_result
-            else:
-                self.logger.warning(f"API调用失败，使用模拟分析结果: {evidence.evidence_type.value}")
+            try:
+                api_result = self._call_evidence_api(evidence)
+                
+                if api_result:
+                    self.logger.info(f"✅ 使用API分析结果: {evidence.evidence_type.value}")
+                    return api_result
+                else:
+                    self.logger.warning(f"⚠️ API调用失败，自动切换到模拟分析结果: {evidence.evidence_type.value}")
+                    return mock_analysis
+            except Exception as e:
+                self.logger.error(f"❌ API调用过程中发生异常: {e}，使用模拟分析结果")
                 return mock_analysis
         else:
-            self.logger.info(f"未配置API或API不可用，使用模拟分析结果: {evidence.evidence_type.value}")
+            self.logger.info(f"📝 未配置API或API类型不匹配，使用模拟分析结果: {evidence.evidence_type.value}")
             return mock_analysis
     
     def _get_mock_analysis_result(self, evidence: EvidenceItem) -> Dict[str, Any]:
@@ -477,9 +566,32 @@ class EvidenceAnalyzer:
             
         api_config = self.api_configs[evidence.evidence_type]
         
+        # 检查文件是否存在和可读
+        if not os.path.exists(evidence.file_path):
+            self.logger.error(f"证据文件不存在: {evidence.file_path}")
+            return None
+            
+        if not os.path.isfile(evidence.file_path):
+            self.logger.error(f"证据路径不是文件: {evidence.file_path}")
+            return None
+            
+        try:
+            with open(evidence.file_path, 'rb') as test_file:
+                test_file.read(1)  # 测试文件是否可读
+        except Exception as e:
+            self.logger.error(f"无法读取证据文件: {evidence.file_path}, 错误: {e}")
+            return None
+        
+        # 检查API服务可用性
+        if not self._check_api_availability(api_config.url):
+            self.logger.warning(f"API服务不可用: {api_config.url}，将使用模拟分析结果")
+            return None
+        
         for attempt in range(max_retries):
             try:
                 self.logger.info(f"正在调用API: {api_config.url} (尝试 {attempt + 1}/{max_retries})")
+                self.logger.debug(f"文件路径: {evidence.file_path}")
+                self.logger.debug(f"文件参数名: {api_config.file_param}")
                 
                 with open(evidence.file_path, 'rb') as f:
                     files = {api_config.file_param: f}
@@ -498,14 +610,21 @@ class EvidenceAnalyzer:
                         self.logger.info(f"API调用成功: {api_config.url}")
                         return result
                     else:
+                        # 记录详细的错误信息
                         self.logger.warning(f"API返回错误状态码: {response.status_code}")
+                        self.logger.error(f"API响应内容: {response.text[:500]}...")  # 只记录前500字符
+                        self.logger.error(f"请求URL: {api_config.url}")
+                        self.logger.error(f"请求文件参数: {api_config.file_param}")
+                        self.logger.error(f"请求数据参数: {data}")
                         
             except requests.exceptions.Timeout:
                 self.logger.warning(f"API调用超时 (尝试 {attempt + 1}/{max_retries})")
-            except requests.exceptions.ConnectionError:
-                self.logger.warning(f"API连接失败 (尝试 {attempt + 1}/{max_retries})")
+            except requests.exceptions.ConnectionError as e:
+                self.logger.warning(f"API连接失败 (尝试 {attempt + 1}/{max_retries}): {e}")
             except Exception as e:
                 self.logger.error(f"API调用异常: {e} (尝试 {attempt + 1}/{max_retries})")
+                import traceback
+                self.logger.debug(f"异常详情: {traceback.format_exc()}")
             
             # 重试前等待
             if attempt < max_retries - 1:
@@ -513,8 +632,26 @@ class EvidenceAnalyzer:
                 self.logger.info(f"等待 {wait_time} 秒后重试...")
                 time.sleep(wait_time)
         
-        self.logger.error(f"API调用失败，已达到最大重试次数: {api_config.url}")
+        self.logger.error(f"API调用失败，已达到最大重试次数: {api_config.url}，将使用模拟分析结果")
         return None
+    
+    def _check_api_availability(self, api_url: str) -> bool:
+        """检查API服务是否可用"""
+        try:
+            # 提取基础URL进行健康检查
+            from urllib.parse import urlparse
+            parsed_url = urlparse(api_url)
+            base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
+            
+            # 尝试连接到服务器
+            response = requests.get(base_url, timeout=5)
+            return True
+        except requests.exceptions.ConnectionError:
+            self.logger.debug(f"无法连接到API服务: {api_url}")
+            return False
+        except Exception as e:
+            self.logger.debug(f"API可用性检查异常: {e}")
+            return False
     
     def _save_report(self, report: Dict[str, Any]) -> str:
         """保存分析报告"""
