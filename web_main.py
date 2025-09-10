@@ -21,7 +21,7 @@ import shutil
 
 # 导入三个核心模块
 try:
-    from lawyer_model import chat_with_lawyer, create_new_conversation, save_conversation_to_json
+    from lawyer_model import set_model_provider, get_current_provider, get_available_providers, get_model_info, update_model_config, chat_with_lawyer, create_new_conversation, save_conversation_to_json
     from free_generate_case_analysis import CaseAnalysisGenerator
     from evidence_analyzer import EvidenceAnalyzer
 except ImportError as e:
@@ -1247,6 +1247,8 @@ def main():
         os.makedirs("evidence_reports", exist_ok=True)
         os.makedirs("templates", exist_ok=True)
         os.makedirs("static", exist_ok=True)
+
+        set_model_provider("doubao")
         
         print("🏛️ AI劳动法律师Web系统启动中...")
         print("🌐 访问地址: http://localhost:5000")
