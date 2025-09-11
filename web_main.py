@@ -758,6 +758,18 @@ class WebAILawyerSystem:
                 "error": f"文件删除失败: {str(e)}"
             }
     
+    def _get_evidence_type_display_name(self, evidence_type: str) -> str:
+        """将前端传递的evidence_type转换为中文显示名称"""
+        type_mapping = {
+            'contract': '劳动合同',
+            'payment': '工资证明', 
+            'attendance': '考勤记录',
+            'medical': '医疗材料',
+            'media': '音视频证据',
+            'chat': '聊天记录'
+        }
+        return type_mapping.get(evidence_type, '其他证据')
+    
     def _analyze_evidence_with_files(self, evidence_data: Dict[str, Any]) -> Dict[str, Any]:
         """结合上传文件和对话记录进行证据分析"""
         try:
@@ -770,10 +782,7 @@ class WebAILawyerSystem:
                     uploaded_files_info.append({
                         'filename': file_info.get('original_name', ''),
                         'filepath': file_info.get('file_path', ''),
-                        'evidence_type': self._infer_evidence_type(
-                            file_info.get('original_name', ''),
-                            file_info.get('file_type', '')
-                        )
+                        'evidence_type': file_info.get('evidence_type', '')  # 直接传递前端的evidence_type
                     })
             
             # 调用证据分析器，传递上传文件信息
@@ -815,8 +824,10 @@ class WebAILawyerSystem:
             # 统计文件类型
             file_types_count[file_type] = file_types_count.get(file_type, 0) + 1
             
-            # 根据文件类型推断证据类型
-            evidence_type = self._infer_evidence_type(file_name, file_type)
+            # 直接使用前端传递的证据类型
+            evidence_type = self._get_evidence_type_display_name(
+                file_info.get('evidence_type', '')
+            )
             
             file_evidence.append({
                 "类型": evidence_type,
@@ -836,28 +847,6 @@ class WebAILawyerSystem:
             },
             "文件分析建议": self._generate_file_analysis_suggestions(file_types_count)
         }
-    
-    def _infer_evidence_type(self, filename: str, file_type: str) -> str:
-        """根据文件名和类型推断证据类型"""
-        filename_lower = filename.lower()
-        
-        # 根据文件名关键词推断
-        if any(keyword in filename_lower for keyword in ['合同', 'contract', '协议', 'agreement']):
-            return "劳动合同"
-        elif any(keyword in filename_lower for keyword in ['工资', 'salary', '薪资', 'pay']):
-            return "工资证明"
-        elif any(keyword in filename_lower for keyword in ['社保', 'insurance', '保险']):
-            return "社保记录"
-        elif any(keyword in filename_lower for keyword in ['考勤', 'attendance', '打卡']):
-            return "考勤记录"
-        elif any(keyword in filename_lower for keyword in ['通知', 'notice', '解除', 'termination']):
-            return "解除通知"
-        elif file_type in ['jpg', 'jpeg', 'png']:
-            return "图片证据"
-        elif file_type in ['pdf', 'doc', 'docx']:
-            return "文档证据"
-        else:
-            return "其他证据"
     
     def _generate_file_analysis_suggestions(self, file_types_count: Dict[str, int]) -> List[str]:
         """根据文件类型生成分析建议"""

@@ -201,13 +201,33 @@ class EvidenceAnalyzer:
         
         return evidence_items
     
+    def _map_frontend_evidence_type(self, frontend_type: str) -> EvidenceType:
+        """
+        将前端传递的evidence_type映射为EvidenceType枚举
+        
+        Args:
+            frontend_type: 前端传递的证据类型（如contract、payment等）
+            
+        Returns:
+            对应的EvidenceType枚举值
+        """
+        type_mapping = {
+            'contract': EvidenceType.CONTRACT,
+            'payment': EvidenceType.PAYMENT,
+            'attendance': EvidenceType.ATTENDANCE,
+            'medical': EvidenceType.MEDICAL,
+            'media': EvidenceType.MEDIA,
+            'chat': EvidenceType.CHAT
+        }
+        return type_mapping.get(frontend_type.lower(), EvidenceType.CONTRACT)
+    
     def _process_uploaded_files(self, evidence_items: Dict[EvidenceType, List[EvidenceItem]], uploaded_files_info: List[Dict]) -> Dict[EvidenceType, List[EvidenceItem]]:
         """
         处理前端上传的文件信息
         
         Args:
             evidence_items: 识别到的证据需求
-            uploaded_files_info: 前端上传的文件信息列表
+            uploaded_files_info: 前端上传的文件信息列表，格式为 [{'filename': str, 'filepath': str, 'evidence_type': str}]
             
         Returns:
             包含文件路径的证据项字典
@@ -215,40 +235,23 @@ class EvidenceAnalyzer:
         print("\n📤 处理前端上传的证据文件...")
         uploaded_evidence = {}
         
-        # 创建文件名到证据类型的映射
-        evidence_type_mapping = {
-            '合同': EvidenceType.CONTRACT,
-            '劳动合同': EvidenceType.CONTRACT,
-            '工资': EvidenceType.PAYMENT,
-            '银行流水': EvidenceType.PAYMENT,
-            '工资单': EvidenceType.PAYMENT,
-            '考勤': EvidenceType.ATTENDANCE,
-            '打卡记录': EvidenceType.ATTENDANCE,
-            '录音': EvidenceType.MEDIA,
-            '视频': EvidenceType.MEDIA,
-            '聊天记录': EvidenceType.CHAT,
-            '微信': EvidenceType.CHAT
-        }
-        
         for file_info in uploaded_files_info:
             filename = file_info.get('filename', '')
             filepath = file_info.get('filepath', '')
+            frontend_evidence_type = file_info.get('evidence_type', '')
             
             if not filepath or not os.path.exists(filepath):
                 print(f"❌ 文件不存在或路径无效: {filepath}")
                 continue
-                
-            # 根据文件名推断证据类型
-            detected_type = None
-            for keyword, evidence_type in evidence_type_mapping.items():
-                if keyword in filename:
-                    detected_type = evidence_type
-                    break
             
-            if not detected_type:
-                # 默认为合同类型
-                detected_type = EvidenceType.CONTRACT
-                print(f"⚠️ 无法识别文件类型，默认为合同类: {filename}")
+            # 优先使用前端传递的evidence_type
+            if frontend_evidence_type:
+                detected_type = self._map_frontend_evidence_type(frontend_evidence_type)
+                print(f"✅ 使用前端指定类型: {filename} -> {self._get_evidence_type_name(detected_type)} (来源: {frontend_evidence_type})")
+            else:
+                # 备用：基于文件名关键词推断（仅当前端未提供evidence_type时使用）
+                detected_type = self._infer_evidence_type_from_filename(filename)
+                print(f"⚠️ 前端未指定类型，使用文件名推断: {filename} -> {self._get_evidence_type_name(detected_type)}")
             
             # 查找匹配的证据项
             if detected_type in evidence_items and evidence_items[detected_type]:
@@ -260,7 +263,7 @@ class EvidenceAnalyzer:
                     uploaded_evidence[detected_type] = []
                 uploaded_evidence[detected_type].append(evidence_item)
                 
-                print(f"✅ 文件已关联: {filename} -> {self._get_evidence_type_name(detected_type)}")
+                print(f"📎 文件已关联到现有证据项: {filename}")
             else:
                 # 创建新的证据项
                 evidence_item = EvidenceItem(
@@ -275,10 +278,56 @@ class EvidenceAnalyzer:
                     uploaded_evidence[detected_type] = []
                 uploaded_evidence[detected_type].append(evidence_item)
                 
-                print(f"✅ 新建证据项: {filename} -> {self._get_evidence_type_name(detected_type)}")
+                print(f"📋 新建证据项: {filename} -> {self._get_evidence_type_name(detected_type)}")
         
-        print(f"📋 共处理 {len(uploaded_files_info)} 个上传文件")
+        print(f"📊 共处理 {len(uploaded_files_info)} 个上传文件")
         return uploaded_evidence
+    
+    def _infer_evidence_type_from_filename(self, filename: str) -> EvidenceType:
+        """
+        基于文件名推断证据类型（备用方法）
+        
+        Args:
+            filename: 文件名
+            
+        Returns:
+            推断的证据类型
+        """
+        filename_lower = filename.lower()
+        
+        # 创建文件名到证据类型的映射
+        evidence_type_mapping = {
+            '合同': EvidenceType.CONTRACT,
+            '劳动合同': EvidenceType.CONTRACT,
+            'contract': EvidenceType.CONTRACT,
+            '工资': EvidenceType.PAYMENT,
+            '银行流水': EvidenceType.PAYMENT,
+            '工资单': EvidenceType.PAYMENT,
+            'salary': EvidenceType.PAYMENT,
+            'payment': EvidenceType.PAYMENT,
+            '考勤': EvidenceType.ATTENDANCE,
+            '打卡记录': EvidenceType.ATTENDANCE,
+            'attendance': EvidenceType.ATTENDANCE,
+            '录音': EvidenceType.MEDIA,
+            '视频': EvidenceType.MEDIA,
+            'audio': EvidenceType.MEDIA,
+            'video': EvidenceType.MEDIA,
+            '.wav': EvidenceType.MEDIA,
+            '.mp3': EvidenceType.MEDIA,
+            '.mp4': EvidenceType.MEDIA,
+            '.avi': EvidenceType.MEDIA,
+            '聊天记录': EvidenceType.CHAT,
+            '微信': EvidenceType.CHAT,
+            'chat': EvidenceType.CHAT
+        }
+        
+        # 根据文件名关键词推断
+        for keyword, evidence_type in evidence_type_mapping.items():
+            if keyword in filename_lower:
+                return evidence_type
+        
+        # 默认为合同类型
+        return EvidenceType.CONTRACT
     
     def _guide_evidence_upload(self, evidence_items: Dict[EvidenceType, List[EvidenceItem]]) -> Dict[EvidenceType, List[EvidenceItem]]:
         """引导用户上传证据文件"""
