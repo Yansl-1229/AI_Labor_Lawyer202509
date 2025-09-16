@@ -19,17 +19,19 @@ from werkzeug.utils import secure_filename
 import uuid
 import shutil
 
-# 导入三个核心模块
+# 导入核心模块
 try:
     from lawyer_model import set_model_provider, get_current_provider, get_available_providers, get_model_info, update_model_config, chat_with_lawyer, create_new_conversation, save_conversation_to_json
     from free_generate_case_analysis import CaseAnalysisGenerator
     from evidence_analyzer import EvidenceAnalyzer
+    from labor_law_guidance import LaborLawGuidance
 except ImportError as e:
     print(f"❌ 模块导入失败: {e}")
     print("请确保以下文件存在：")
     print("- lawyer_model.py")
     print("- free_generate_case_analysis.py")
     print("- evidence_analyzer.py")
+    print("- labor_law_guidance.py")
     sys.exit(1)
 
 class UserType(Enum):
@@ -41,6 +43,7 @@ class SessionStatus(Enum):
     """会话状态枚举"""
     COLLECTING = "collecting"    # 信息收集中
     COMPLETED = "completed"      # 信息收集完成
+    GUIDANCE = "guidance"        # 举证指导中
     ANALYZING = "analyzing"      # 分析中
     FINISHED = "finished"        # 全部完成
 
@@ -59,6 +62,13 @@ class WebAILawyerSystem:
         self.conversation_file_path = None
         self.case_analysis_result = None
         self.evidence_analysis_result = None
+        
+        # 举证指导相关属性
+        self.guidance_system = None
+        self.guidance_analysis_result = None
+        self.required_evidence_list = []
+        self.user_evidence_status = {}
+        self.guidance_completed = False
         
         # 初始化各个模块
         self._init_modules()
@@ -86,6 +96,9 @@ class WebAILawyerSystem:
             
             # 初始化证据分析器
             self.evidence_analyzer = EvidenceAnalyzer()
+            
+            # 初始化举证指导系统
+            self.guidance_system = LaborLawGuidance()
             
         except Exception as e:
             print(f"❌ 模块初始化失败: {e}")
@@ -196,6 +209,199 @@ class WebAILawyerSystem:
                 "error": f"服务选择错误: {str(e)}"
             }
     
+    def perform_guidance(self) -> Dict[str, Any]:
+        """执行举证指导功能"""
+        try:
+            if not self.conversation_file_path:
+                return {
+                    "success": False,
+                    "error": "未找到对话记录文件"
+                }
+            
+            self.session_status = SessionStatus.GUIDANCE
+            
+            # 加载对话历史
+            if not self.guidance_system.load_conversation_history(self.conversation_file_path):
+                return {
+                    "success": False,
+                    "error": "加载对话历史失败"
+                }
+            
+            # AI分析案例
+            self.guidance_analysis_result = self.guidance_system.analyze_case_with_ai(
+                self.guidance_system.conversation_history
+            )
+            
+            if not self.guidance_analysis_result or "AI分析失败" in self.guidance_analysis_result:
+                return {
+                    "success": False,
+                    "error": "案例分析失败"
+                }
+            
+            # 提取证据清单
+            self.required_evidence_list = self.guidance_system.extract_required_evidence(
+                self.guidance_analysis_result
+            )
+            
+            if not self.required_evidence_list:
+                return {
+                    "success": False,
+                    "error": "生成证据清单失败"
+                }
+            
+            # 保存举证指导分析结果
+            guidance_file = os.path.join(self.session_dir, "guidance_analysis.txt")
+            with open(guidance_file, 'w', encoding='utf-8') as f:
+                f.write(self.guidance_analysis_result)
+            
+            # 保存证据清单
+            evidence_list_file = os.path.join(self.session_dir, "required_evidence_list.json")
+            with open(evidence_list_file, 'w', encoding='utf-8') as f:
+                json.dump(self.required_evidence_list, f, ensure_ascii=False, indent=2)
+            
+            return {
+                "success": True,
+                "message": "✅ 举证指导分析完成，请查看所需证据清单",
+                "analysis_result": self.guidance_analysis_result,
+                "evidence_list": self.required_evidence_list,
+                "next_phase": "guidance_interaction",
+                "next_phase_name": "证据核查阶段",
+                "guidance_file": guidance_file,
+                "evidence_list_file": evidence_list_file
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"举证指导过程中出错: {str(e)}"
+            }
+    
+    def process_guidance_input(self, user_input: str) -> Dict[str, Any]:
+        """处理举证指导过程中的用户输入"""
+        try:
+            if not user_input.strip():
+                return {
+                    "success": False,
+                    "error": "请输入您持有的证据材料信息"
+                }
+            
+            if not self.required_evidence_list:
+                return {
+                    "success": False,
+                    "error": "请先执行举证指导分析"
+                }
+            
+            # 解析用户输入的证据信息
+            # 使用规则解析
+            rule_parsed = self.guidance_system._parse_user_evidence_input(
+                user_input, self.required_evidence_list
+            )
+            
+            # 使用LLM解析并合并结果
+            try:
+                llm_parsed = self.guidance_system._parse_user_evidence_with_llm(
+                    user_input, self.required_evidence_list
+                )
+            except Exception:
+                llm_parsed = {}
+            
+            # 合并解析结果（LLM识别优先）
+            self.user_evidence_status = {**rule_parsed, **llm_parsed}
+            
+            # 生成证据分析和建议
+            owned_evidence = [k for k, v in self.user_evidence_status.items() 
+                            if v['status'] in ['是', '部分']]
+            
+            missing_evidence = [evidence for evidence in self.required_evidence_list 
+                              if evidence['evidence_type'] not in self.user_evidence_status 
+                              or self.user_evidence_status[evidence['evidence_type']]['status'] == '否']
+            
+            # 生成证据分析报告
+            evidence_analysis = self._generate_guidance_analysis_report(
+                owned_evidence, missing_evidence
+            )
+            
+            # 保存用户证据状态
+            evidence_status_file = os.path.join(self.session_dir, "user_evidence_status.json")
+            with open(evidence_status_file, 'w', encoding='utf-8') as f:
+                json.dump(self.user_evidence_status, f, ensure_ascii=False, indent=2)
+            
+            # 标记举证指导完成
+            self.guidance_completed = True
+            
+            # 根据用户类型决定下一步
+            if self.user_type == UserType.PREMIUM:
+                next_phase = "evidence_analysis"
+                next_phase_name = "证据分析阶段"
+            else:
+                next_phase = "final_report"
+                next_phase_name = "生成最终报告"
+            
+            return {
+                "success": True,
+                "message": "✅ 证据核查完成，已生成举证指导报告",
+                "owned_evidence": owned_evidence,
+                "missing_evidence": [e['evidence_type'] for e in missing_evidence],
+                "evidence_analysis": evidence_analysis,
+                "guidance_completed": True,
+                "next_phase": next_phase,
+                "next_phase_name": next_phase_name,
+                "evidence_status_file": evidence_status_file
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"处理举证指导输入时出错: {str(e)}"
+            }
+    
+    def _generate_guidance_analysis_report(self, owned_evidence: List[str], 
+                                         missing_evidence: List[Dict]) -> str:
+        """生成举证指导分析报告"""
+        report_lines = []
+        report_lines.append("📋 举证指导分析报告")
+        report_lines.append("=" * 50)
+        report_lines.append("")
+        
+        # 已持有证据
+        if owned_evidence:
+            report_lines.append("✅ 您目前持有的证据：")
+            for evidence_type in owned_evidence:
+                status_text = "完整" if self.user_evidence_status[evidence_type]['status'] == '是' else "部分"
+                report_lines.append(f"   • {evidence_type} ({status_text})")
+            report_lines.append("")
+        
+        # 缺失证据及取证建议
+        if missing_evidence:
+            report_lines.append("⚠️ 缺失的证据及取证建议：")
+            
+            # 关键证据
+            critical_missing = [e for e in missing_evidence if e['importance'] == '关键证据']
+            if critical_missing:
+                report_lines.append("")
+                report_lines.append("🔴 关键证据（优先收集）：")
+                for evidence in critical_missing:
+                    report_lines.append(f"   • {evidence['evidence_type']}")
+                    report_lines.append(f"     取证方法：{evidence['collection_method']}")
+                    report_lines.append(f"     重要性：{evidence['description']}")
+                    report_lines.append("")
+            
+            # 重要证据和辅助证据
+            other_missing = [e for e in missing_evidence if e['importance'] != '关键证据']
+            if other_missing:
+                report_lines.append("🟡 其他重要证据：")
+                for evidence in other_missing:
+                    icon = "🟡" if evidence['importance'] == '重要证据' else "🟢"
+                    report_lines.append(f"   {icon} {evidence['evidence_type']} ({evidence['importance']})")
+                    report_lines.append(f"     取证方法：{evidence['collection_method']}")
+                    report_lines.append("")
+        
+        report_lines.append("💡 专业建议：")
+        report_lines.append("   建议优先收集关键证据以提高维权成功率。")
+        report_lines.append("   如需进一步咨询，建议联系专业律师。")
+        
+        return "\n".join(report_lines)
+     
     def perform_case_analysis(self) -> Dict[str, Any]:
         """执行案例分析"""
         try:
@@ -226,12 +432,14 @@ class WebAILawyerSystem:
                 }
                 
                 # 根据用户类型决定下一步
-                if self.user_type == UserType.PREMIUM:
-                    result["next_phase"] = "evidence_analysis"
-                    result["next_phase_name"] = "证据分析阶段"
-                else:
+                if self.user_type == UserType.FREE:
+                    # 免费用户直接进入最终报告
                     result["next_phase"] = "final_report"
                     result["next_phase_name"] = "生成最终报告"
+                else:
+                    # 付费用户进入举证指导
+                    result["next_phase"] = "guidance"
+                    result["next_phase_name"] = "举证指导阶段"
                 
                 return result
             else:
@@ -356,7 +564,11 @@ class WebAILawyerSystem:
             "session_dir": self.session_dir,
             "conversation_file": self.conversation_file_path,
             "has_case_analysis": bool(self.case_analysis_result),
-            "has_evidence_analysis": bool(self.evidence_analysis_result)
+            "has_evidence_analysis": bool(self.evidence_analysis_result),
+            "has_guidance_analysis": bool(self.guidance_analysis_result),
+            "guidance_completed": self.guidance_completed,
+            "required_evidence_count": len(self.required_evidence_list),
+            "user_evidence_count": len(self.user_evidence_status)
         }
     
     def _save_conversation(self) -> str:
@@ -414,6 +626,12 @@ class WebAILawyerSystem:
                 "服务状态": "已完成"
             },
             "对话记录文件": self.conversation_file_path,
+            "举证指导结果": {
+                "指导分析": self.guidance_analysis_result,
+                "所需证据清单": self.required_evidence_list,
+                "用户证据状态": self.user_evidence_status,
+                "指导完成状态": self.guidance_completed
+            },
             "案例分析结果": self.case_analysis_result,
         }
         
@@ -440,6 +658,33 @@ class WebAILawyerSystem:
             for key, value in session_info.items():
                 f.write(f"{key}: {value}\n")
             f.write("\n")
+            
+            # 举证指导
+            guidance_result = report.get("举证指导结果")
+            if guidance_result:
+                f.write("📋 举证指导:\n")
+                f.write("-" * 40 + "\n")
+                
+                if guidance_result.get("指导分析"):
+                    f.write("指导分析:\n")
+                    f.write(str(guidance_result["指导分析"]) + "\n\n")
+                
+                evidence_list = guidance_result.get("所需证据清单", [])
+                if evidence_list:
+                    f.write(f"所需证据清单 ({len(evidence_list)} 项):\n")
+                    for i, evidence in enumerate(evidence_list, 1):
+                        f.write(f"{i}. {evidence.get('evidence_type', 'N/A')} ({evidence.get('importance', 'N/A')})\n")
+                        f.write(f"   描述：{evidence.get('description', 'N/A')}\n")
+                        f.write(f"   取证方法：{evidence.get('collection_method', 'N/A')}\n")
+                    f.write("\n")
+                
+                user_evidence = guidance_result.get("用户证据状态", {})
+                if user_evidence:
+                    f.write("用户证据持有情况:\n")
+                    for evidence_type, info in user_evidence.items():
+                        status = info.get('status', 'N/A')
+                        f.write(f"• {evidence_type}: {status}\n")
+                    f.write("\n")
             
             # 案例分析
             if report.get("案例分析结果"):
@@ -1225,6 +1470,59 @@ def remove_file():
         return jsonify({
             "success": False,
             "error": f"删除文件失败: {str(e)}"
+        }), 500
+
+@app.route('/api/guidance', methods=['POST'])
+def guidance():
+    """执行举证指导分析"""
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        
+        if not session_id:
+            return jsonify({
+                "success": False,
+                "error": "缺少会话ID"
+            }), 400
+        
+        lawyer_system = get_or_create_session(session_id)
+        result = lawyer_system.perform_guidance()
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"举证指导失败: {str(e)}"
+        }), 500
+
+@app.route('/api/guidance_input', methods=['POST'])
+def guidance_input():
+    """处理举证指导过程中的用户输入"""
+    try:
+        data = request.get_json()
+        session_id = data.get('session_id')
+        user_input = data.get('user_input', '').strip()
+        
+        if not session_id:
+            return jsonify({
+                "success": False,
+                "error": "缺少会话ID"
+            }), 400
+        
+        if not user_input:
+            return jsonify({
+                "success": False,
+                "error": "用户输入不能为空"
+            }), 400
+        
+        lawyer_system = get_or_create_session(session_id)
+        result = lawyer_system.process_guidance_input(user_input)
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"处理举证指导输入失败: {str(e)}"
         }), 500
 
 def main():

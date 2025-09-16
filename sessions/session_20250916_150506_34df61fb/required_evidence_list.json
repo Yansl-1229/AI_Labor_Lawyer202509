@@ -1,0 +1,58 @@
+[
+  {
+    "evidence_type": "劳动合同",
+    "description": "证明劳动关系的存在及双方权利义务的约定。",
+    "legal_requirements": "合同应具备双方签字盖章，明确约定了劳动合同期限、工作岗位、工资等内容。",
+    "importance": "关键证据",
+    "collection_method": "从公司或个人档案中获取原件或复印件。"
+  },
+  {
+    "evidence_type": "解除劳动合同通知书",
+    "description": "证明公司单方解除劳动合同的事实及理由。",
+    "legal_requirements": "通知书应加盖公司公章，并明确记载解除理由、解除日期等信息。",
+    "importance": "关键证据",
+    "collection_method": "由公司提供，劳动者需妥善保存原件。"
+  },
+  {
+    "evidence_type": "工资流水记录",
+    "description": "用于计算月平均工资，作为经济补偿金或赔偿金的计算依据。",
+    "legal_requirements": "工资流水应显示每月工资发放金额及发放时间，最好能体现公司账户转账记录。",
+    "importance": "重要证据",
+    "collection_method": "从银行打印工资流水或通过电子银行导出记录。"
+  },
+  {
+    "evidence_type": "社保和公积金缴纳记录",
+    "description": "证明公司是否依法履行了法定义务。",
+    "legal_requirements": "社保和公积金缴纳记录应显示公司按时足额缴纳的情况。",
+    "importance": "重要证据",
+    "collection_method": "从社保局或公积金管理中心获取缴纳记录。"
+  },
+  {
+    "evidence_type": "考勤记录",
+    "description": "证明劳动者的实际工作时间和出勤情况。",
+    "legal_requirements": "考勤记录应显示劳动者的实际出勤天数及工作时间，最好由公司系统生成并加盖公章。",
+    "importance": "辅助证据",
+    "collection_method": "从公司人事部门获取，或通过公司考勤系统导出。"
+  },
+  {
+    "evidence_type": "工作沟通记录",
+    "description": "证明劳动者的工作内容、任务完成情况及与公司的互动。",
+    "legal_requirements": "沟通记录应包含劳动者与公司领导或同事之间的工作安排、任务分配等内容，最好能体现具体工作成果。",
+    "importance": "重要证据",
+    "collection_method": "从微信、邮件等通讯工具中截图保存原始记录。"
+  },
+  {
+    "evidence_type": "公司未提供培训或调岗的证据",
+    "description": "如无相关通知、文件或记录，可间接证明公司未履行法定程序。",
+    "legal_requirements": "可通过书面通知、邮件记录等形式证明公司未履行培训或调岗的法定程序。",
+    "importance": "关键证据",
+    "collection_method": "收集公司内部通知、邮件或其他书面材料，或通过证人证言佐证。"
+  },
+  {
+    "evidence_type": "其他相关文件",
+    "description": "包括但不限于绩效考核记录、工作任务分配记录等。",
+    "legal_requirements": "绩效考核记录、工作任务分配记录等应加盖公司公章或由公司负责人签字确认。",
+    "importance": "辅助证据",
+    "collection_method": "从公司内部系统或人事部门获取相关文件。"
+  }
+]

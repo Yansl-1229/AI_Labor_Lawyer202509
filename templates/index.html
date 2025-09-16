@@ -941,26 +941,65 @@
 
                 this.showLoading(true);
                 try {
-                    const response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            session_id: this.sessionId,
-                            message: message
-                        })
-                    });
+                    let response;
+                    if (this.currentPhase === 'guidance_input') {
+                        // 处理举证指导输入
+                        response = await fetch('/api/guidance_input', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                session_id: this.sessionId,
+                                user_input: message
+                            })
+                        });
+                    } else {
+                        // 处理正常聊天
+                        response = await fetch('/api/chat', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                session_id: this.sessionId,
+                                message: message
+                            })
+                        });
+                    }
 
                     const result = await response.json();
                     if (result.success) {
-                        this.addMessage('lawyer', result.response);
-                        
-                        if (result.conversation_ended) {
+                        if (this.currentPhase === 'guidance_input') {
+                            // 处理举证指导结果
+                            this.addMessage('system', result.message);
+                            
+                            // 显示证据分析报告
+                            if (result.evidence_analysis) {
+                                this.addGuidanceResult('证据核查报告', result.evidence_analysis);
+                            }
+                            
                             this.currentPhase = result.next_phase;
                             this.updatePhase(result.next_phase_name);
-                            this.addMessage('system', result.message);
-                            this.showServiceSelection();
+                            
+                            // 根据下一阶段决定后续操作
+                            if (result.next_phase === 'evidence_analysis') {
+                                this.showEvidenceChoice();
+                            } else {
+                                setTimeout(() => this.generateFinalReport(), 1000);
+                            }
+                            
+                            this.disableInput();
+                        } else {
+                            // 处理正常聊天结果
+                            this.addMessage('lawyer', result.response);
+                            
+                            if (result.conversation_ended) {
+                                this.currentPhase = result.next_phase;
+                                this.updatePhase(result.next_phase_name);
+                                this.addMessage('system', result.message);
+                                this.showServiceSelection();
+                            }
                         }
                     } else {
                         this.addMessage('error', result.error || '处理消息失败');
@@ -1038,7 +1077,10 @@
                         this.addAnalysisResult('案例分析报告', result.analysis_result);
                         
                         this.currentPhase = result.next_phase;
-                        if (result.next_phase === 'evidence_analysis') {
+                        if (result.next_phase === 'guidance') {
+                            this.updatePhase(result.next_phase_name);
+                            setTimeout(() => this.performGuidance(), 1000);
+                        } else if (result.next_phase === 'evidence_analysis') {
                             this.updatePhase(result.next_phase_name);
                             this.showEvidenceChoice();
                         } else {
@@ -1047,6 +1089,43 @@
                         }
                     } else {
                         this.addMessage('error', result.error || '案例分析失败');
+                    }
+                } catch (error) {
+                    this.addMessage('error', '网络错误：' + error.message);
+                } finally {
+                    this.showLoading(false);
+                }
+            }
+
+            async performGuidance() {
+                this.addMessage('system', '📋 正在进行举证指导分析，请稍候...');
+                this.showLoading(true);
+                
+                try {
+                    const response = await fetch('/api/guidance', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            session_id: this.sessionId
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (result.success) {
+                        this.addMessage('system', result.message);
+                        this.addGuidanceResult('举证指导分析', result.analysis_result);
+                        this.addEvidenceList('所需证据清单', result.evidence_list);
+                        
+                        // 提示用户输入证据持有情况
+                        this.addMessage('system', '请告诉我您目前持有哪些证据材料？\n例如：我目前持有劳动合同、工资条、解除通知书等...');
+                        
+                        this.currentPhase = 'guidance_input';
+                        this.updatePhase('证据核查阶段');
+                        this.showInput();
+                    } else {
+                        this.addMessage('error', result.error || '举证指导分析失败');
                     }
                 } catch (error) {
                     this.addMessage('error', '网络错误：' + error.message);
@@ -1221,6 +1300,70 @@
                 return div.innerHTML;
             }
 
+            addGuidanceResult(title, content) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message system';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.innerHTML = `
+                    <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;">
+                        <h4 style="color: #495057; margin-bottom: 10px; font-size: 16px;">${title}</h4>
+                        <div style="color: #6c757d; line-height: 1.6; white-space: pre-wrap;">${this.escapeHtml(content)}</div>
+                    </div>
+                `;
+                
+                messageDiv.appendChild(contentDiv);
+                this.elements.messages.appendChild(messageDiv);
+                this.scrollToBottom();
+            }
+
+            addEvidenceList(title, evidenceList) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message system';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                
+                let listHtml = `<div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 10px 0;">
+                    <h4 style="color: #495057; margin-bottom: 10px; font-size: 16px;">${title}</h4>`;
+                
+                if (evidenceList && evidenceList.length > 0) {
+                    evidenceList.forEach((evidence, index) => {
+                        const importanceColor = evidence.importance === '关键证据' ? '#dc3545' : 
+                                              evidence.importance === '重要证据' ? '#ffc107' : '#28a745';
+                        const importanceIcon = evidence.importance === '关键证据' ? '🔴' : 
+                                             evidence.importance === '重要证据' ? '🟡' : '🟢';
+                        
+                        listHtml += `
+                            <div style="border-left: 3px solid ${importanceColor}; padding-left: 12px; margin: 10px 0;">
+                                <div style="font-weight: bold; color: #495057; margin-bottom: 5px;">
+                                    ${importanceIcon} ${evidence.evidence_type} (${evidence.importance})
+                                </div>
+                                <div style="color: #6c757d; font-size: 14px; margin-bottom: 5px;">
+                                    <strong>作用：</strong>${evidence.description}
+                                </div>
+                                <div style="color: #6c757d; font-size: 14px; margin-bottom: 5px;">
+                                    <strong>法律要件：</strong>${evidence.legal_requirements}
+                                </div>
+                                <div style="color: #6c757d; font-size: 14px;">
+                                    <strong>取证方法：</strong>${evidence.collection_method}
+                                </div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    listHtml += '<p style="color: #6c757d;">暂无证据清单</p>';
+                }
+                
+                listHtml += '</div>';
+                contentDiv.innerHTML = listHtml;
+                
+                messageDiv.appendChild(contentDiv);
+                this.elements.messages.appendChild(messageDiv);
+                this.scrollToBottom();
+            }
+
             addAnalysisResult(title, content) {
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'message system';
@@ -1326,6 +1469,17 @@
             hideServiceSelection() {
                 this.elements.serviceSelection.style.display = 'none';
                 this.elements.inputArea.style.display = 'block';
+            }
+
+            showInput() {
+                this.elements.inputArea.style.display = 'block';
+                this.elements.messageInput.disabled = false;
+                this.elements.sendBtn.disabled = false;
+            }
+
+            disableInput() {
+                this.elements.messageInput.disabled = true;
+                this.elements.sendBtn.disabled = true;
             }
 
             showEvidenceChoice() {
