@@ -65,16 +65,35 @@ class DoubaoAdapter(ModelAdapter):
             api_key=os.environ.get("ARK_API_KEY", "1b4bef68-37d5-4196-ba8b-17c9054ae9c5")
         )
     
-    def call_api(self, messages, model_name='doubao-seed-1-6-250615'):
-        """调用Doubao API"""
+    def call_api(self, messages, model_name='doubao-seed-1-6-250615', stream: bool = False):
+        """调用Doubao API
+        
+        Args:
+            messages (list): 对话消息列表（system/user/assistant）
+            model_name (str): 模型名称或端点ID
+            stream (bool): 是否以流式方式返回（默认False）
+        
+        Returns:
+            若 stream=False，返回标准 Completion 响应对象；
+            若 stream=True，返回一个可迭代的流对象（yield 块）。
+        """
         # 转换消息格式以适配Doubao API
         formatted_messages = self._format_messages_for_doubao(messages)
         
-        response = self.client.chat.completions.create(
-            model=model_name,
-            messages=formatted_messages
-        )
-        return response
+        if stream:
+            return self.client.chat.completions.create(
+                model=model_name,
+                messages=formatted_messages,
+                thinking={"type": "disabled"},
+                stream=True
+            )
+        else:
+            response = self.client.chat.completions.create(
+                model=model_name,
+                messages=formatted_messages,
+                thinking={"type": "disabled"}
+            )
+            return response
     
     def format_response(self, response):
         """格式化Doubao响应"""

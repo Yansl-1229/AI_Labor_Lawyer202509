@@ -1,0 +1,13 @@
+{
+  "case_id": "case_20251014_143755_d2b09083",
+  "inventory": [
+    {
+      "added_time": "2025-10-14T14:47:16.057169",
+      "description": "我目前手上持有的劳动合同",
+      "name": "劳动合同",
+      "type": "contract",
+      "type_name": "劳动合同"
+    }
+  ],
+  "created_time": "2025-10-14T14:47:18.580521"
+}

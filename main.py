@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 AI劳动法律师软件主程序
-整合多轮对话收集、仲裁分析和证据分析三个核心模块
+整合多轮对话收集和仲裁分析两个核心模块
 实现完整的法律咨询服务流程
 """
 
@@ -14,17 +14,15 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
 
-# 导入三个核心模块
+# 导入核心模块
 try:
     from lawyer_model import chat_with_lawyer, create_new_conversation, save_conversation_to_json
     from free_generate_case_analysis import CaseAnalysisGenerator
-    from evidence_analyzer import EvidenceAnalyzer
 except ImportError as e:
     print(f"❌ 模块导入失败: {e}")
     print("请确保以下文件存在：")
     print("- 1.lawyer_model.py (重命名为 lawyer_model.py)")
     print("- 2.free_generate_case_analysis.py (重命名为 free_generate_case_analysis.py)")
-    print("- 3.evidence_analyzer.py (重命名为 evidence_analyzer.py)")
     sys.exit(1)
 
 class UserType(Enum):
@@ -53,7 +51,6 @@ class AILawyerSystem:
         self.conversation_history = None
         self.conversation_file_path = None
         self.case_analysis_result = None
-        self.evidence_analysis_result = None
         
         # 初始化各个模块
         self._init_modules()
@@ -76,10 +73,6 @@ class AILawyerSystem:
             # 初始化案例分析生成器
             self.case_analyzer = CaseAnalysisGenerator()
             print("✅ 案例分析模块初始化成功")
-            
-            # 初始化证据分析器
-            self.evidence_analyzer = EvidenceAnalyzer()
-            print("✅ 证据分析模块初始化成功")
             
         except Exception as e:
             print(f"❌ 模块初始化失败: {e}")
@@ -107,9 +100,7 @@ class AILawyerSystem:
             # 第三阶段：案例分析
             self._phase_case_analysis()
             
-            # 第四阶段：证据分析（仅付费用户）
-            if self.user_type == UserType.PREMIUM:
-                self._phase_evidence_analysis()
+
             
             # 第五阶段：生成最终报告
             self._phase_generate_final_report()
@@ -185,10 +176,7 @@ class AILawyerSystem:
         print("  • 基本法律建议")
         
         print("\n💎 付费服务额外包含：")
-        print("  • 专业证据合规性分析")
-        print("  • 精确的仲裁赔偿计算")
-        print("  • 完整的法律依据说明")
-        print("  • 证据收集指导")
+
         print("  • 详细的维权方案")
         
         while True:
@@ -246,46 +234,7 @@ class AILawyerSystem:
         except Exception as e:
             print(f"❌ 案例分析过程中出错: {e}")
     
-    def _phase_evidence_analysis(self):
-        """
-        第四阶段：证据分析（仅付费用户）
-        分析用户提供的证据材料
-        """
-        print("\n🔬 第四阶段：证据分析")
-        print("=" * 30)
-        
-        print("作为付费用户，您可以享受专业的证据分析服务")
-        
-        choice = input("\n是否需要进行证据分析？(y/n): ").strip().lower()
-        
-        if choice in ['y', 'yes', '是']:
-            try:
-                print("\n🔍 开始证据分析流程...")
-                
-                # 调用证据分析模块
-                self.evidence_analysis_result = self.evidence_analyzer.analyze_case_evidence(
-                    self.conversation_file_path
-                )
-                
-                if self.evidence_analysis_result and "error" not in self.evidence_analysis_result:
-                    print("\n✅ 证据分析完成")
-                    
-                    # 显示分析摘要
-                    self._display_evidence_summary()
-                    
-                    # 保存证据分析结果
-                    evidence_file = os.path.join(self.session_dir, "evidence_analysis.json")
-                    with open(evidence_file, 'w', encoding='utf-8') as f:
-                        json.dump(self.evidence_analysis_result, f, ensure_ascii=False, indent=2)
-                    print(f"\n📄 证据分析报告已保存: {evidence_file}")
-                    
-                else:
-                    print("❌ 证据分析失败")
-                    
-            except Exception as e:
-                print(f"❌ 证据分析过程中出错: {e}")
-        else:
-            print("⏭️ 跳过证据分析")
+
     
     def _phase_generate_final_report(self):
         """
@@ -333,34 +282,7 @@ class AILawyerSystem:
         
         return original_file
     
-    def _display_evidence_summary(self):
-        """
-        显示证据分析摘要
-        """
-        if not self.evidence_analysis_result:
-            return
-        
-        print("\n📋 证据分析摘要：")
-        print("-" * 40)
-        
-        # 显示核心证据
-        core_evidence = self.evidence_analysis_result.get('核心证据列表', [])
-        if core_evidence:
-            print(f"🎯 核心证据 ({len(core_evidence)} 项):")
-            for i, evidence in enumerate(core_evidence, 1):
-                print(f"  {i}. {evidence.get('类型', 'N/A')}: {evidence.get('摘要', 'N/A')[:50]}...")
-        
-        # 显示证据完整性
-        completeness = self.evidence_analysis_result.get('证据完整性评估', {})
-        if completeness:
-            print(f"\n📊 证据完整性: {completeness.get('完整性得分', 'N/A')}")
-        
-        # 显示建议
-        recommendations = self.evidence_analysis_result.get('建议和风险提示', [])
-        if recommendations:
-            print("\n💡 专业建议:")
-            for rec in recommendations[:3]:  # 只显示前3条
-                print(f"  • {rec}")
+
     
     def _create_comprehensive_report(self) -> Dict[str, Any]:
         """
@@ -378,9 +300,8 @@ class AILawyerSystem:
             "案例分析结果": self.case_analysis_result,
         }
         
-        # 付费用户包含证据分析
-        if self.user_type == UserType.PREMIUM and self.evidence_analysis_result:
-            report["证据分析结果"] = self.evidence_analysis_result
+        # 根据用户类型设置服务级别
+        if self.user_type == UserType.PREMIUM:
             report["服务级别"] = "付费专业版"
         else:
             report["服务级别"] = "免费基础版"
@@ -410,33 +331,7 @@ class AILawyerSystem:
                 f.write("-" * 40 + "\n")
                 f.write(str(report["案例分析结果"]) + "\n\n")
             
-            # 证据分析（付费用户）
-            if report.get("证据分析结果"):
-                f.write("🔬 证据分析:\n")
-                f.write("-" * 40 + "\n")
-                
-                evidence_result = report["证据分析结果"]
-                
-                # LLM综合分析
-                if evidence_result.get("LLM综合分析"):
-                    f.write("专业分析:\n")
-                    f.write(evidence_result["LLM综合分析"] + "\n\n")
-                
-                # 核心证据
-                core_evidence = evidence_result.get("核心证据列表", [])
-                if core_evidence:
-                    f.write(f"核心证据 ({len(core_evidence)} 项):\n")
-                    for i, evidence in enumerate(core_evidence, 1):
-                        f.write(f"{i}. {evidence.get('类型', 'N/A')}: {evidence.get('摘要', 'N/A')}\n")
-                    f.write("\n")
-                
-                # 建议
-                recommendations = evidence_result.get("建议和风险提示", [])
-                if recommendations:
-                    f.write("专业建议:\n")
-                    for rec in recommendations:
-                        f.write(f"• {rec}\n")
-                    f.write("\n")
+
             
             f.write("=" * 80 + "\n")
             f.write("报告结束\n")
@@ -456,11 +351,7 @@ class AILawyerSystem:
         if report.get("案例分析结果"):
             print("✅ 案例分析: 已完成")
         
-        if report.get("证据分析结果"):
-            evidence_result = report["证据分析结果"]
-            core_count = len(evidence_result.get("核心证据列表", []))
-            supporting_count = len(evidence_result.get("辅助证据列表", []))
-            print(f"✅ 证据分析: 已完成 (核心证据 {core_count} 项, 辅助证据 {supporting_count} 项)")
+
         
         print("-" * 50)
     
@@ -506,7 +397,6 @@ def main():
         # 创建必要的目录
         os.makedirs("sessions", exist_ok=True)
         os.makedirs("conversation_datasets", exist_ok=True)
-        os.makedirs("evidence_reports", exist_ok=True)
         
         # 启动AI律师系统
         system = AILawyerSystem()
